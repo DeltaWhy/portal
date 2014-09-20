@@ -1,11 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"log"
 	"net"
-	"os"
 	"github.com/DeltaWhy/portal/libportal"
 	"github.com/docopt/docopt-go"
 )
@@ -75,7 +73,6 @@ func handleTunnel(t *Tunnel) {
 			case libportal.OK:
 				t.state = Ready
 				fmt.Print("OK ", pkt.ConnId, ": ", string(pkt.Payload), "\n")
-				go writer(t)
 			case libportal.Error:
 				fmt.Print("Error ", pkt.ConnId, ": ", string(pkt.Payload), "\n")
 				t.Close()
@@ -109,7 +106,7 @@ func handleTunnel(t *Tunnel) {
 					delete(gs, pkt.ConnId)
 				}
 			case libportal.Data:
-				fmt.Print("DATA ", pkt.ConnId, ": ", string(pkt.Payload))
+				fmt.Print("DATA ", pkt.ConnId, ": ", len(pkt.Payload), "\n")
 				if gs[pkt.ConnId] != nil {
 					_, err := gs[pkt.ConnId].conn.Write(pkt.Payload)
 					if err != nil {
@@ -129,19 +126,5 @@ func handleTunnel(t *Tunnel) {
 			t.Close()
 			return
 		}
-	}
-}
-
-func writer(t *Tunnel) {
-	r := bufio.NewReader(os.Stdin)
-	for {
-		line, err := r.ReadString('\n')
-		if err != nil {
-			log.Println(err)
-			t.Close()
-			log.Println("closing writer")
-			return
-		}
-		t.outgoing <- libportal.StrPacket(libportal.Data, line)
 	}
 }

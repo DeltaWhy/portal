@@ -120,6 +120,17 @@ func (h *Host) Listener() {
 	h.logger.Println("Listener closed cleanly")
 }
 
+func (h *Host) Pinger() {
+	defer func() {
+		recover()
+	}()
+
+	for {
+		time.Sleep(20*time.Second)
+		h.outgoing <- libportal.Packet{libportal.Ping, 0, nil}
+	}
+}
+
 func (h *Host) Close() {
 	if !h.closed {
 		h.closed = true
@@ -160,6 +171,12 @@ func hostSetup(h *Host) {
 		h.logger.Println("closed before gameMeta")
 		return
 	}
+	if resp.Kind != libportal.GameMeta {
+		h.outgoing <- libportal.Err("expected GameMeta")
+		time.Sleep(time.Second)
+		h.Close()
+		return
+	}
 	h.logger.Println("gameMeta:", string(resp.Payload))
 
 	var err error
@@ -172,6 +189,7 @@ func hostSetup(h *Host) {
 	}
 	h.outgoing <- libportal.Okay(fmt.Sprint("opened outside ", h.outside.Addr()))
 	go h.Listener()
+	go h.Pinger()
 	h.state = Ready
 
 	gs := make(map[uint32]*Guest)
@@ -183,9 +201,17 @@ func hostSetup(h *Host) {
 				break handlerLoop
 			}
 			switch pkt.Kind {
+			case libportal.Ping:
 			case libportal.Data:
+				h.logger.Println("DATA ", pkt.ConnId, ": ", len(pkt.Payload))
 				if gs[pkt.ConnId] != nil {
-					gs[pkt.ConnId].outgoing <- string(pkt.Payload)
+					_, err := gs[pkt.ConnId].conn.Write(pkt.Payload)
+					if err != nil {
+						h.logger.Println(err)
+						gs[pkt.ConnId].Close()
+						delete(gs, pkt.ConnId)
+						h.outgoing <- libportal.Packet{libportal.GuestDisconnect, pkt.ConnId, nil}
+					}
 				} else {
 					h.outgoing <- libportal.Packet{libportal.GuestDisconnect, pkt.ConnId, nil}
 				}
@@ -202,6 +228,7 @@ func hostSetup(h *Host) {
 				h.logger.Println("handler got guest")
 				gs[g.id] = g
 				h.outgoing <- libportal.Packet{libportal.GuestConnect, g.id, nil}
+				go g.Reader()
 			} else {
 				break handlerLoop
 			}
