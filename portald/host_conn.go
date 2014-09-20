@@ -25,6 +25,8 @@ type Host struct {
 	state HostState
 	incoming chan string
 	outgoing chan string
+	guests chan *Guest
+	closed bool
 }
 
 func handleHost(conn net.Conn) *Host {
@@ -34,6 +36,8 @@ func handleHost(conn net.Conn) *Host {
 	h.state = Unauthed
 	h.incoming = make(chan string)
 	h.outgoing = make(chan string)
+	h.guests = make(chan *Guest)
+	h.closed = false
 	go h.Reader()
 	go h.Writer()
 	go hostSetup(h)
@@ -57,7 +61,7 @@ func (h *Host) Reader() {
 		resp, err := r.ReadString('\n')
 		if err != nil {
 			h.logger.Println(err)
-			close(h.incoming)
+			h.Close()
 			h.logger.Println("closing Reader")
 			return
 		}
@@ -74,7 +78,7 @@ func (h *Host) Writer() {
 		err := w.Flush()
 		if err != nil {
 			h.logger.Println(err)
-			close(h.outgoing)
+			h.Close()
 			h.logger.Println("closing Writer")
 			return
 		}
@@ -96,18 +100,22 @@ func (h *Host) Listener() {
 			}
 		}
 		h.logger.Println(conn.RemoteAddr(), " connected")
-		handleGuest(h, conn)
+		h.guests <- handleGuest(h, conn)
 	}
 	h.logger.Println("Listener closed cleanly")
 }
 
 func (h *Host) Close() {
-	close(h.incoming)
-	close(h.outgoing)
-	if h.outside != nil {
-		h.outside.Close()
+	if !h.closed {
+		h.closed = true
+		close(h.incoming)
+		close(h.outgoing)
+		if h.outside != nil {
+			h.outside.Close()
+		}
+		h.conn.Close()
+		close(h.guests)
 	}
-	h.conn.Close()
 }
 
 func hostSetup(h *Host) {
@@ -143,4 +151,29 @@ func hostSetup(h *Host) {
 	h.outgoing <- fmt.Sprint("opened outside ", h.outside.Addr())
 	go h.Listener()
 	h.state = Ready
+
+	gs := make(map[uint16]*Guest)
+	var id uint16 = 0
+	handlerLoop:
+	for {
+		select {
+		case message, ok := <-h.incoming:
+			if ok {
+				h.outgoing <- message
+			} else {
+				break handlerLoop
+			}
+		case g, ok := <-h.guests:
+			if ok {
+				h.logger.Println("handler got guest")
+				id++
+				gs[id] = g
+			} else {
+				break handlerLoop
+			}
+		}
+	}
+	for _, g := range gs {
+		g.Close()
+	}
 }

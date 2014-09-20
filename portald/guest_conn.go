@@ -15,6 +15,7 @@ type Guest struct {
 	logger *log.Logger
 	incoming chan string
 	outgoing chan string
+	closed bool
 }
 
 func handleGuest(h *Host, conn net.Conn) *Guest {
@@ -24,8 +25,14 @@ func handleGuest(h *Host, conn net.Conn) *Guest {
 	g.logger = log.New(os.Stdout, fmt.Sprint("[Client ", conn.RemoteAddr(), "] "), log.LstdFlags)
 	g.incoming = make(chan string)
 	g.outgoing = make(chan string)
+	g.closed = false
 	go g.Reader()
 	go g.Writer()
+	go func() {
+		for x := range g.incoming {
+			g.outgoing <- x
+		}
+	}()
 	return g
 }
 
@@ -44,7 +51,7 @@ func (g *Guest) Reader() {
 		resp, err := r.ReadString('\n')
 		if err != nil {
 			g.logger.Println(err)
-			close(g.incoming)
+			g.Close()
 			g.logger.Println("closing Reader")
 			return
 		}
@@ -61,7 +68,7 @@ func (g *Guest) Writer() {
 		err := w.Flush()
 		if err != nil {
 			g.logger.Println(err)
-			close(g.outgoing)
+			g.Close()
 			g.logger.Println("closing Writer")
 			return
 		}
@@ -70,7 +77,10 @@ func (g *Guest) Writer() {
 }
 
 func (g *Guest) Close() {
-	close(g.incoming)
-	close(g.outgoing)
-	g.conn.Close()
+	if !g.closed {
+		g.closed = true
+		close(g.incoming)
+		close(g.outgoing)
+		g.conn.Close()
+	}
 }
