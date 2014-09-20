@@ -178,13 +178,24 @@ func hostSetup(h *Host) {
 	handlerLoop:
 	for {
 		select {
-		case message, ok := <-h.incoming:
-			if ok {
-				for _, g := range gs {
-					g.outgoing <- string(message.Payload)
-				}
-			} else {
+		case pkt, ok := <-h.incoming:
+			if !ok {
 				break handlerLoop
+			}
+			switch pkt.Kind {
+			case libportal.Data:
+				if gs[pkt.ConnId] != nil {
+					gs[pkt.ConnId].outgoing <- string(pkt.Payload)
+				} else {
+					h.outgoing <- libportal.Packet{libportal.GuestDisconnect, pkt.ConnId, nil}
+				}
+			case libportal.GuestDisconnect:
+				if gs[pkt.ConnId] != nil {
+					gs[pkt.ConnId].Close()
+					delete(gs, pkt.ConnId)
+				}
+			default:
+				h.logger.Println("unknown packet from host")
 			}
 		case g, ok := <-h.guests:
 			if ok {

@@ -35,7 +35,7 @@ Options:
 		log.Fatal(err)
 	}
 	log.Println("connected from ", client.LocalAddr())
-	t := NewTunnel(client, args["--meta"].(string))
+	t := NewTunnel(client, args["--target"].(string), args["--meta"].(string))
 	/*stop := make(chan struct{})
 	go reader(stop, client)
 	go writer(stop, client)
@@ -45,6 +45,7 @@ Options:
 }
 
 func handleTunnel(t *Tunnel) {
+	gs := make(map[uint32]*Guest)
 	for pkt := range t.incoming {
 		if t.state == Init {
 			if pkt.Kind != libportal.AuthReq {
@@ -93,10 +94,31 @@ func handleTunnel(t *Tunnel) {
 				return
 			case libportal.GuestConnect:
 				fmt.Print("GuestConnect ", pkt.ConnId, ": ", string(pkt.Payload), "\n")
+				conn, err := net.Dial("tcp", t.target)
+				if err != nil {
+					t.logger.Println("error connecting to target: ", err)
+					t.outgoing <- libportal.Packet{libportal.GuestDisconnect, pkt.ConnId, nil}
+				} else {
+					g := NewGuest(t, conn, pkt.ConnId)
+					gs[g.id] = g
+				}
 			case libportal.GuestDisconnect:
 				fmt.Print("GuestDisconnect ", pkt.ConnId, ": ", string(pkt.Payload), "\n")
+				if gs[pkt.ConnId] != nil {
+					gs[pkt.ConnId].Close()
+					delete(gs, pkt.ConnId)
+				}
 			case libportal.Data:
 				fmt.Print("DATA ", pkt.ConnId, ": ", string(pkt.Payload))
+				if gs[pkt.ConnId] != nil {
+					_, err := gs[pkt.ConnId].conn.Write(pkt.Payload)
+					if err != nil {
+						t.logger.Println(err)
+						gs[pkt.ConnId].Close()
+						delete(gs, pkt.ConnId)
+						t.outgoing <- libportal.Packet{libportal.GuestDisconnect, pkt.ConnId, nil}
+					}
+				}
 			default:
 				t.logger.Println("unexpected packet Kind=", pkt.Kind, " ConnId=", pkt.ConnId, ": ", string(pkt.Payload))
 				t.Close()
