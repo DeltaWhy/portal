@@ -1,12 +1,14 @@
 package main
 
 import (
-	"bufio"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
 	"time"
+	"github.com/DeltaWhy/portal/libportal"
 )
 
 type HostState int
@@ -23,8 +25,8 @@ type Host struct {
 	logger *log.Logger
 	outside net.Listener
 	state HostState
-	incoming chan string
-	outgoing chan string
+	incoming chan libportal.Packet
+	outgoing chan libportal.Packet
 	guests chan *Guest
 	closed bool
 }
@@ -34,15 +36,15 @@ func handleHost(conn net.Conn) *Host {
 	h.conn = conn
 	h.logger = log.New(os.Stdout, fmt.Sprint("[", conn.RemoteAddr(), "] "), log.LstdFlags)
 	h.state = Unauthed
-	h.incoming = make(chan string)
-	h.outgoing = make(chan string)
+	h.incoming = make(chan libportal.Packet)
+	h.outgoing = make(chan libportal.Packet)
 	h.guests = make(chan *Guest)
 	h.closed = false
 	go h.Reader()
 	go h.Writer()
 	go hostSetup(h)
-	time.Sleep(15*time.Second)
-	h.Close()
+	//time.Sleep(15*time.Second)
+	//h.Close()
 	return h
 }
 
@@ -55,27 +57,40 @@ func (h *Host) Reader() {
 		}
 	}()
 
-	r := bufio.NewReader(h.conn)
 	for {
 		h.conn.SetReadDeadline(time.Now().Add(30*time.Second))
-		resp, err := r.ReadString('\n')
+		var header libportal.PacketHeader
+		err := binary.Read(h.conn, binary.BigEndian, &header)
 		if err != nil {
 			h.logger.Println(err)
 			h.Close()
 			h.logger.Println("closing Reader")
 			return
 		}
-		h.incoming <- resp
+		payload := make([]byte, header.Length)
+		_, err = io.ReadFull(h.conn, payload)
+		if err != nil {
+			h.logger.Println(err)
+			h.Close()
+			h.logger.Println("closing Reader")
+			return
+		}
+		h.incoming <- libportal.Packet{Kind: header.Kind, ConnId: header.ConnId, Payload: payload}
 	}
 }
 
 // reads the outgoing channel and writes to the socket
 func (h *Host) Writer() {
-	w := bufio.NewWriter(h.conn)
 	for message := range h.outgoing {
 		h.conn.SetWriteDeadline(time.Now().Add(30*time.Second))
-		w.WriteString(message)
-		err := w.Flush()
+		err := binary.Write(h.conn, binary.BigEndian, libportal.Header(message))
+		if err != nil {
+			h.logger.Println(err)
+			h.Close()
+			h.logger.Println("closing Writer")
+			return
+		}
+		_, err = h.conn.Write(message.Payload)
 		if err != nil {
 			h.logger.Println(err)
 			h.Close()
@@ -119,7 +134,7 @@ func (h *Host) Close() {
 }
 
 func hostSetup(h *Host) {
-	h.outgoing <- "auth packet\n"
+	h.outgoing <- libportal.StrPacket("auth packet\n")
 	h.state = Authing
 
 	resp, ok := <-h.incoming
@@ -131,7 +146,7 @@ func hostSetup(h *Host) {
 
 	h.logger.Println("auth response:", resp)
 
-	h.outgoing <- "auth OK\n"
+	h.outgoing <- libportal.StrPacket("auth OK\n")
 
 	resp, ok = <-h.incoming
 	if !ok {
@@ -144,11 +159,11 @@ func hostSetup(h *Host) {
 	h.outside, err = net.Listen("tcp", ":")
 	if err != nil {
 		h.logger.Println(err)
-		h.outgoing <- "error opening outside port"
+		h.outgoing <- libportal.StrPacket("error opening outside port")
 		h.Close()
 		return
 	}
-	h.outgoing <- fmt.Sprint("opened outside ", h.outside.Addr(), "\n")
+	h.outgoing <- libportal.StrPacket(fmt.Sprint("opened outside ", h.outside.Addr(), "\n"))
 	go h.Listener()
 	h.state = Ready
 
@@ -159,7 +174,7 @@ func hostSetup(h *Host) {
 		case message, ok := <-h.incoming:
 			if ok {
 				for _, g := range gs {
-					g.outgoing <- message
+					g.outgoing <- string(message.Payload)
 				}
 			} else {
 				break handlerLoop
@@ -168,7 +183,7 @@ func hostSetup(h *Host) {
 			if ok {
 				h.logger.Println("handler got guest")
 				gs[g.id] = g
-				h.outgoing <- fmt.Sprint("got guest ", g.id, "\n")
+				h.outgoing <- libportal.StrPacket(fmt.Sprint("got guest ", g.id, "\n"))
 			} else {
 				break handlerLoop
 			}

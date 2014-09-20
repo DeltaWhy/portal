@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"time"
+	"github.com/DeltaWhy/portal/libportal"
 )
 
 type Guest struct {
@@ -33,7 +34,7 @@ func handleGuest(h *Host, conn net.Conn) *Guest {
 	go g.Writer()
 	go func() {
 		for x := range g.incoming {
-			g.host.outgoing <- fmt.Sprint("guest ", g.id, ": ", x)
+			g.host.outgoing <- libportal.StrPacket(fmt.Sprint("guest ", g.id, ": ", x))
 		}
 	}()
 	return g
@@ -86,7 +87,7 @@ func (g *Guest) Close() {
 		close(g.outgoing)
 		g.conn.Close()
 		if !g.host.closed {
-			g.host.outgoing <- fmt.Sprint("guest ", g.id, "closed\n")
+			g.host.outgoing <- libportal.StrPacket(fmt.Sprint("guest ", g.id, "closed\n"))
 		}
 	}
 }
