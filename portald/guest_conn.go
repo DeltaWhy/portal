@@ -28,8 +28,8 @@ func handleGuest(h *Host, conn net.Conn) *Guest {
 }
 
 func (g *Guest) Reader() {
-	buf := make([]byte, 1024)
 	for {
+		buf := make([]byte, 1024)
 		n, err := g.conn.Read(buf)
 		if err != nil {
 			g.logger.Println(err)

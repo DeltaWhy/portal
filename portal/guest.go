@@ -24,8 +24,8 @@ func NewGuest(tunnel *Tunnel, conn net.Conn, id uint32) *Guest {
 }
 
 func (g *Guest) Reader() {
-	buf := make([]byte, 1024)
 	for {
+		buf := make([]byte, 1024)
 		n, err := g.conn.Read(buf)
 		if err != nil {
 			log.Println(err)
