@@ -24,6 +24,8 @@ func handleGuest(h *Host, conn net.Conn) *Guest {
 	g.logger = log.New(os.Stdout, fmt.Sprint("[Client ", conn.RemoteAddr(), "] "), log.LstdFlags)
 	g.incoming = make(chan string)
 	g.outgoing = make(chan string)
+	go g.Reader()
+	go g.Writer()
 	return g
 }
 

@@ -37,7 +37,7 @@ func handleHost(conn net.Conn) *Host {
 	go h.Reader()
 	go h.Writer()
 	go hostSetup(h)
-	time.Sleep(5*time.Second)
+	time.Sleep(15*time.Second)
 	h.Close()
 	return h
 }
@@ -88,17 +88,25 @@ func (h *Host) Listener() {
 	for {
 		conn, err := h.outside.Accept()
 		if err != nil {
-			log.Println(err)
-			continue
+			if err.Error() == "use of closed network connection" {
+				break
+			} else {
+				log.Println(err)
+				continue
+			}
 		}
 		h.logger.Println(conn.RemoteAddr(), " connected")
 		handleGuest(h, conn)
 	}
+	h.logger.Println("Listener closed cleanly")
 }
 
 func (h *Host) Close() {
 	close(h.incoming)
 	close(h.outgoing)
+	if h.outside != nil {
+		h.outside.Close()
+	}
 	h.conn.Close()
 }
 
@@ -113,6 +121,26 @@ func hostSetup(h *Host) {
 	}
 	h.state = Authed
 
-	h.logger.Println(resp)
-	h.logger.Println("authed")
+	h.logger.Println("auth response: ", resp)
+
+	h.outgoing <- "auth OK\n"
+
+	resp, ok = <-h.incoming
+	if !ok {
+		h.logger.Println("closed before gameMeta")
+		return
+	}
+	h.logger.Println("gameMeta: ", resp)
+
+	var err error
+	h.outside, err = net.Listen("tcp", ":")
+	if err != nil {
+		h.logger.Println(err)
+		h.outgoing <- "error opening outside port"
+		h.Close()
+		return
+	}
+	h.outgoing <- fmt.Sprint("opened outside ", h.outside.Addr())
+	go h.Listener()
+	h.state = Ready
 }
