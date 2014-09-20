@@ -129,7 +129,7 @@ func hostSetup(h *Host) {
 	}
 	h.state = Authed
 
-	h.logger.Println("auth response: ", resp)
+	h.logger.Println("auth response:", resp)
 
 	h.outgoing <- "auth OK\n"
 
@@ -138,7 +138,7 @@ func hostSetup(h *Host) {
 		h.logger.Println("closed before gameMeta")
 		return
 	}
-	h.logger.Println("gameMeta: ", resp)
+	h.logger.Println("gameMeta:", resp)
 
 	var err error
 	h.outside, err = net.Listen("tcp", ":")
@@ -148,26 +148,27 @@ func hostSetup(h *Host) {
 		h.Close()
 		return
 	}
-	h.outgoing <- fmt.Sprint("opened outside ", h.outside.Addr())
+	h.outgoing <- fmt.Sprint("opened outside ", h.outside.Addr(), "\n")
 	go h.Listener()
 	h.state = Ready
 
-	gs := make(map[uint16]*Guest)
-	var id uint16 = 0
+	gs := make(map[uint32]*Guest)
 	handlerLoop:
 	for {
 		select {
 		case message, ok := <-h.incoming:
 			if ok {
-				h.outgoing <- message
+				for _, g := range gs {
+					g.outgoing <- message
+				}
 			} else {
 				break handlerLoop
 			}
 		case g, ok := <-h.guests:
 			if ok {
 				h.logger.Println("handler got guest")
-				id++
-				gs[id] = g
+				gs[g.id] = g
+				h.outgoing <- fmt.Sprint("got guest ", g.id, "\n")
 			} else {
 				break handlerLoop
 			}

@@ -2,10 +2,13 @@ package main
 
 import (
 	"log"
+	"math/rand"
 	"net"
+	"time"
 )
 
 func main() {
+	rand.Seed(time.Now().UTC().UnixNano())
 	log.SetPrefix("[portald] ")
 	srv, err := net.Listen("tcp", ":9000")
 	if err != nil {

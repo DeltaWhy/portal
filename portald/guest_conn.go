@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"time"
@@ -15,6 +16,7 @@ type Guest struct {
 	logger *log.Logger
 	incoming chan string
 	outgoing chan string
+	id uint32
 	closed bool
 }
 
@@ -25,12 +27,13 @@ func handleGuest(h *Host, conn net.Conn) *Guest {
 	g.logger = log.New(os.Stdout, fmt.Sprint("[Client ", conn.RemoteAddr(), "] "), log.LstdFlags)
 	g.incoming = make(chan string)
 	g.outgoing = make(chan string)
+	g.id = rand.Uint32()
 	g.closed = false
 	go g.Reader()
 	go g.Writer()
 	go func() {
 		for x := range g.incoming {
-			g.outgoing <- x
+			g.host.outgoing <- fmt.Sprint("guest ", g.id, ": ", x)
 		}
 	}()
 	return g
@@ -82,5 +85,8 @@ func (g *Guest) Close() {
 		close(g.incoming)
 		close(g.outgoing)
 		g.conn.Close()
+		if !g.host.closed {
+			g.host.outgoing <- fmt.Sprint("guest ", g.id, "closed\n")
+		}
 	}
 }
