@@ -34,7 +34,7 @@ func handleGuest(h *Host, conn net.Conn) *Guest {
 	go g.Writer()
 	go func() {
 		for x := range g.incoming {
-			g.host.outgoing <- libportal.StrPacket(fmt.Sprint("guest ", g.id, ": ", x))
+			g.host.outgoing <- libportal.Packet{libportal.Data, g.id, []byte(x)}
 		}
 	}()
 	return g
@@ -87,7 +87,7 @@ func (g *Guest) Close() {
 		close(g.outgoing)
 		g.conn.Close()
 		if !g.host.closed {
-			g.host.outgoing <- libportal.StrPacket(fmt.Sprint("guest ", g.id, "closed\n"))
+			g.host.outgoing <- libportal.Packet{libportal.GuestDisconnect, g.id, nil}
 		}
 	}
 }

@@ -49,7 +49,25 @@ func reader(stop chan struct{}, conn net.Conn) {
 			stop <- struct{}{}
 			return
 		}
-		fmt.Print("DATA ", header.ConnId, ": ", string(payload))
+		switch header.Kind {
+		case libportal.Ping:
+		case libportal.AuthReq:
+			fmt.Print("AuthReq ", header.ConnId, ": ", string(payload))
+		case libportal.AuthResp:
+			// not valid
+		case libportal.OK:
+			fmt.Print("OK ", header.ConnId, ": ", string(payload))
+		case libportal.Error:
+			fmt.Print("Error ", header.ConnId, ": ", string(payload))
+		case libportal.GameMeta:
+			// not valid
+		case libportal.GuestConnect:
+			fmt.Print("GuestConnect ", header.ConnId, ": ", string(payload))
+		case libportal.GuestDisconnect:
+			fmt.Print("GuestDisconnect ", header.ConnId, ": ", string(payload))
+		case libportal.Data:
+			fmt.Print("DATA ", header.ConnId, ": ", string(payload))
+		}
 	}
 }
 
@@ -64,7 +82,7 @@ func writer(stop chan struct{}, conn net.Conn) {
 			log.Println("closing Writer")
 			return
 		}
-		packet := libportal.StrPacket(line)
+		packet := libportal.StrPacket(libportal.Data, line)
 		err = binary.Write(conn, binary.BigEndian, libportal.Header(packet))
 		if err != nil {
 			log.Println(err)

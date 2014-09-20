@@ -30,6 +30,14 @@ func Header(p Packet) PacketHeader {
 	return PacketHeader{Kind: p.Kind, ConnId: p.ConnId, Length: uint32(len(p.Payload))}
 }
 
-func StrPacket(s string) Packet {
-	return Packet{Kind: Data, ConnId: 0, Payload: []byte(s)}
+func StrPacket(k PacketKind, s string) Packet {
+	return Packet{Kind: k, ConnId: 0, Payload: []byte(s)}
+}
+
+func Okay(s string) Packet {
+	return Packet{Kind: OK, ConnId: 0, Payload: []byte(s)}
+}
+
+func Err(s string) Packet {
+	return Packet{Kind: Error, ConnId: 0, Payload: []byte(s)}
 }

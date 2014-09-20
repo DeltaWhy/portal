@@ -134,7 +134,7 @@ func (h *Host) Close() {
 }
 
 func hostSetup(h *Host) {
-	h.outgoing <- libportal.StrPacket("auth packet\n")
+	h.outgoing <- libportal.Packet{libportal.AuthReq, 0, nil}
 	h.state = Authing
 
 	resp, ok := <-h.incoming
@@ -146,7 +146,7 @@ func hostSetup(h *Host) {
 
 	h.logger.Println("auth response:", resp)
 
-	h.outgoing <- libportal.StrPacket("auth OK\n")
+	h.outgoing <- libportal.Okay("auth OK\n")
 
 	resp, ok = <-h.incoming
 	if !ok {
@@ -159,11 +159,11 @@ func hostSetup(h *Host) {
 	h.outside, err = net.Listen("tcp", ":")
 	if err != nil {
 		h.logger.Println(err)
-		h.outgoing <- libportal.StrPacket("error opening outside port")
+		h.outgoing <- libportal.Err("error opening outside port")
 		h.Close()
 		return
 	}
-	h.outgoing <- libportal.StrPacket(fmt.Sprint("opened outside ", h.outside.Addr(), "\n"))
+	h.outgoing <- libportal.Okay(fmt.Sprint("opened outside ", h.outside.Addr(), "\n"))
 	go h.Listener()
 	h.state = Ready
 
@@ -183,7 +183,7 @@ func hostSetup(h *Host) {
 			if ok {
 				h.logger.Println("handler got guest")
 				gs[g.id] = g
-				h.outgoing <- libportal.StrPacket(fmt.Sprint("got guest ", g.id, "\n"))
+				h.outgoing <- libportal.Packet{libportal.GuestConnect, g.id, nil}
 			} else {
 				break handlerLoop
 			}
