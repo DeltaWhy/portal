@@ -142,18 +142,25 @@ func hostSetup(h *Host) {
 		h.logger.Println("closed before authing")
 		return
 	}
+	// TODO check response
+	if resp.Kind != libportal.AuthResp {
+		h.outgoing <- libportal.Err("expected AuthResp")
+		time.Sleep(time.Second)
+		h.Close()
+		return
+	}
 	h.state = Authed
 
-	h.logger.Println("auth response:", resp)
+	h.logger.Println("auth response:", string(resp.Payload))
 
-	h.outgoing <- libportal.Okay("auth OK\n")
+	h.outgoing <- libportal.Okay("auth OK")
 
 	resp, ok = <-h.incoming
 	if !ok {
 		h.logger.Println("closed before gameMeta")
 		return
 	}
-	h.logger.Println("gameMeta:", resp)
+	h.logger.Println("gameMeta:", string(resp.Payload))
 
 	var err error
 	h.outside, err = net.Listen("tcp", ":")
@@ -163,7 +170,7 @@ func hostSetup(h *Host) {
 		h.Close()
 		return
 	}
-	h.outgoing <- libportal.Okay(fmt.Sprint("opened outside ", h.outside.Addr(), "\n"))
+	h.outgoing <- libportal.Okay(fmt.Sprint("opened outside ", h.outside.Addr()))
 	go h.Listener()
 	h.state = Ready
 

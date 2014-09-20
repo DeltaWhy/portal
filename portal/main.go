@@ -2,102 +2,124 @@ package main
 
 import (
 	"bufio"
-	"encoding/binary"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"os"
-	"time"
 	"github.com/DeltaWhy/portal/libportal"
+	"github.com/docopt/docopt-go"
 )
 
 func main() {
+	const usage = `TCP tunneling client.
+
+Usage:
+    portal [options] -s <server-addr> -t <target-addr>
+    portal (-h | --help | --version)
+
+Options:
+    -h, --help                  Show this screen
+    --version                   Show version
+    -s, --server <server-addr>  Address of portald server to connect to
+    -t, --target <target-addr>  Address of receiving server
+    -m, --meta <meta>           Extra information for server`
+
+	args, err := docopt.Parse(usage, nil, true, "portal 0.1", false)
+	if err != nil {
+		log.Fatal(err)
+	}
+	//fmt.Println(args)
 	log.SetPrefix("[portal] ")
-	client, err := net.Dial("tcp", "127.0.0.1:9000")
+	client, err := net.Dial("tcp", args["--server"].(string))
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Println("connected from ", client.LocalAddr())
-	stop := make(chan struct{})
+	t := NewTunnel(client, args["--meta"].(string))
+	/*stop := make(chan struct{})
 	go reader(stop, client)
 	go writer(stop, client)
-	_ = <-stop
+	_ = <-stop*/
+	handleTunnel(t)
 	log.Println("exited cleanly")
 }
 
-func reader(stop chan struct{}, conn net.Conn) {
-	for {
-		conn.SetReadDeadline(time.Now().Add(30*time.Second))
-		var header libportal.PacketHeader
-		err := binary.Read(conn, binary.BigEndian, &header)
-		if err != nil {
-			log.Println(err)
-			conn.Close()
-			log.Println("closing Reader")
-			stop <- struct{}{}
-			return
+func handleTunnel(t *Tunnel) {
+	for pkt := range t.incoming {
+		if t.state == Init {
+			if pkt.Kind != libportal.AuthReq {
+				t.logger.Println("expected AuthReq")
+				t.Close()
+				return
+			}
+			fmt.Print("AuthReq ", pkt.ConnId, ": ", string(pkt.Payload), "\n")
+			t.state = Authing
+			t.outgoing <- libportal.Packet{libportal.AuthResp, 0, nil} //TODO real auth
+		} else if t.state == Authing {
+			switch pkt.Kind {
+			case libportal.OK:
+				t.state = Authed
+				t.outgoing <- libportal.Packet{libportal.GameMeta, 0, []byte(t.meta)}
+			case libportal.Error:
+				fmt.Print("Error ", pkt.ConnId, ": ", string(pkt.Payload), "\n")
+				t.Close()
+				return
+			default:
+				t.logger.Println("expected OK or Error")
+				t.Close()
+				return
+			}
+		} else if t.state == Authed {
+			switch pkt.Kind {
+			case libportal.OK:
+				t.state = Ready
+				fmt.Print("OK ", pkt.ConnId, ": ", string(pkt.Payload), "\n")
+				go writer(t)
+			case libportal.Error:
+				fmt.Print("Error ", pkt.ConnId, ": ", string(pkt.Payload), "\n")
+				t.Close()
+				return
+			default:
+				t.logger.Println("expected OK or Error")
+				t.Close()
+				return
+			}
+		} else if t.state == Ready {
+			switch pkt.Kind {
+			case libportal.Ping:
+			case libportal.Error:
+				fmt.Print("Error ", pkt.ConnId, ": ", string(pkt.Payload), "\n")
+				t.Close()
+				return
+			case libportal.GuestConnect:
+				fmt.Print("GuestConnect ", pkt.ConnId, ": ", string(pkt.Payload), "\n")
+			case libportal.GuestDisconnect:
+				fmt.Print("GuestDisconnect ", pkt.ConnId, ": ", string(pkt.Payload), "\n")
+			case libportal.Data:
+				fmt.Print("DATA ", pkt.ConnId, ": ", string(pkt.Payload))
+			default:
+				t.logger.Println("unexpected packet Kind=", pkt.Kind, " ConnId=", pkt.ConnId, ": ", string(pkt.Payload))
+				t.Close()
+				return
+			}
 		} else {
-			log.Println("got header")
-		}
-		payload := make([]byte, header.Length)
-		_, err = io.ReadFull(conn, payload)
-		if err != nil {
-			log.Println(err)
-			conn.Close()
-			log.Println("closing Reader")
-			stop <- struct{}{}
+			t.logger.Println("unknown state")
+			t.Close()
 			return
-		}
-		switch header.Kind {
-		case libportal.Ping:
-		case libportal.AuthReq:
-			fmt.Print("AuthReq ", header.ConnId, ": ", string(payload))
-		case libportal.AuthResp:
-			// not valid
-		case libportal.OK:
-			fmt.Print("OK ", header.ConnId, ": ", string(payload))
-		case libportal.Error:
-			fmt.Print("Error ", header.ConnId, ": ", string(payload))
-		case libportal.GameMeta:
-			// not valid
-		case libportal.GuestConnect:
-			fmt.Print("GuestConnect ", header.ConnId, ": ", string(payload))
-		case libportal.GuestDisconnect:
-			fmt.Print("GuestDisconnect ", header.ConnId, ": ", string(payload))
-		case libportal.Data:
-			fmt.Print("DATA ", header.ConnId, ": ", string(payload))
 		}
 	}
 }
 
-func writer(stop chan struct{}, conn net.Conn) {
+func writer(t *Tunnel) {
 	r := bufio.NewReader(os.Stdin)
 	for {
 		line, err := r.ReadString('\n')
 		if err != nil {
 			log.Println(err)
-			conn.Close()
-			stop <- struct{}{}
-			log.Println("closing Writer")
+			t.Close()
+			log.Println("closing writer")
 			return
 		}
-		packet := libportal.StrPacket(libportal.Data, line)
-		err = binary.Write(conn, binary.BigEndian, libportal.Header(packet))
-		if err != nil {
-			log.Println(err)
-			conn.Close()
-			stop <- struct{}{}
-			log.Println("closing Writer")
-			return
-		}
-		_, err = conn.Write(packet.Payload)
-		if err != nil {
-			log.Println(err)
-			conn.Close()
-			stop <- struct{}{}
-			log.Println("closing Writer")
-			return
-		}
+		t.outgoing <- libportal.StrPacket(libportal.Data, line)
 	}
 }
