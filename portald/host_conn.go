@@ -142,11 +142,12 @@ func (h *Host) Close() {
 		h.conn.Close()
 		close(h.guests)
 		go func() {
-			r := redis_client.Cmd("DEL", fmt.Sprintf("%s:game:%s", redis_prefix, h.outside.Addr()))
+			key := fmt.Sprintf("%s:game:%s", redis_prefix, h.outside.Addr())
+			r := redis_client.Cmd("DEL", key)
 			if r.Err != nil {
 				h.logger.Println(r.Err)
 			}
-			r = redis_client.Cmd("PUBLISH", redis_prefix+":game_closes", fmt.Sprint(h.outside.Addr()))
+			r = redis_client.Cmd("PUBLISH", redis_prefix+":game_closes", key)
 			if r.Err != nil {
 				h.logger.Println(r.Err)
 			}
@@ -172,7 +173,8 @@ func hostSetup(h *Host) {
 	}
 	h.state = Authed
 
-	h.logger.Println("auth response:", string(resp.Payload))
+	auth := string(resp.Payload)
+	h.logger.Println("auth response:", auth)
 
 	h.outgoing <- libportal.Okay("auth OK")
 
@@ -187,7 +189,8 @@ func hostSetup(h *Host) {
 		h.Close()
 		return
 	}
-	h.logger.Println("gameMeta:", string(resp.Payload))
+	motd := string(resp.Payload)
+	h.logger.Println("gameMeta:", motd)
 
 	var err error
 	h.outside, err = net.Listen("tcp4", ":")
@@ -201,11 +204,13 @@ func hostSetup(h *Host) {
 	go h.Listener()
 	go h.Pinger()
 	go func() {
-		r := redis_client.Cmd("SET", fmt.Sprintf("%s:game:%s", redis_prefix, h.outside.Addr()), string(resp.Payload))
+		key := fmt.Sprintf("%s:game:%s", redis_prefix, h.outside.Addr())
+		val := fmt.Sprintf("{\"addr\":\"%s\", \"user\":\"%s\", \"motd\":\"%s\"}", h.outside.Addr(), auth, motd)
+		r := redis_client.Cmd("SET", key, val)
 		if r.Err != nil {
 			h.logger.Println(r.Err)
 		}
-		r = redis_client.Cmd("PUBLISH", redis_prefix+":game_opens", fmt.Sprintf("{\"addr\":\"%s\", \"motd\":\"%s\"}", h.outside.Addr(), string(resp.Payload)))
+		r = redis_client.Cmd("PUBLISH", redis_prefix+":game_opens", key)
 		if r.Err != nil {
 			h.logger.Println(r.Err)
 		}

@@ -23,6 +23,7 @@ type Tunnel struct {
 	conn net.Conn
 	logger *log.Logger
 	state TunnelState
+	auth string
 	meta string
 	target string
 	incoming chan libportal.Packet
@@ -30,11 +31,12 @@ type Tunnel struct {
 	closed bool
 }
 
-func NewTunnel(conn net.Conn, target string, meta string) *Tunnel {
+func NewTunnel(conn net.Conn, target string, auth string, meta string) *Tunnel {
 	t := new(Tunnel)
 	t.conn = conn
 	t.logger = log.New(os.Stdout, "[portal] ", log.LstdFlags)
 	t.state = Init
+	t.auth = auth
 	t.meta = meta
 	t.target = target
 	t.incoming = make(chan libportal.Packet)

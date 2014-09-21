@@ -20,6 +20,7 @@ Options:
     --version                   Show version
     -s, --server <server-addr>  Address of portald server to connect to
     -t, --target <target-addr>  Address of receiving server
+    -a, --auth <auth-info>      Authentication for portald
     -m, --meta <meta>           Extra information for server`
 
 	args, err := docopt.Parse(usage, nil, true, "portal 0.1", false)
@@ -33,11 +34,15 @@ Options:
 		log.Fatal(err)
 	}
 	log.Println("connected from ", client.LocalAddr())
-	t := NewTunnel(client, args["--target"].(string), args["--meta"].(string))
-	/*stop := make(chan struct{})
-	go reader(stop, client)
-	go writer(stop, client)
-	_ = <-stop*/
+	meta := ""
+	if args["--meta"] != nil {
+		meta = args["--meta"].(string)
+	}
+	auth := ""
+	if args["--auth"] != nil {
+		auth = args["--auth"].(string)
+	}
+	t := NewTunnel(client, args["--target"].(string), auth, meta)
 	handleTunnel(t)
 	log.Println("exited cleanly")
 }
@@ -53,7 +58,7 @@ func handleTunnel(t *Tunnel) {
 			}
 			fmt.Print("AuthReq ", pkt.ConnId, ": ", string(pkt.Payload), "\n")
 			t.state = Authing
-			t.outgoing <- libportal.Packet{libportal.AuthResp, 0, nil} //TODO real auth
+			t.outgoing <- libportal.Packet{libportal.AuthResp, 0, []byte(t.auth)} //TODO real auth
 		} else if t.state == Authing {
 			switch pkt.Kind {
 			case libportal.OK:
