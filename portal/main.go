@@ -28,7 +28,7 @@ Options:
 	}
 	//fmt.Println(args)
 	log.SetPrefix("[portal] ")
-	client, err := net.Dial("tcp", args["--server"].(string))
+	client, err := net.Dial("tcp4", args["--server"].(string))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func handleTunnel(t *Tunnel) {
 				return
 			case libportal.GuestConnect:
 				fmt.Print("GuestConnect ", pkt.ConnId, ": ", string(pkt.Payload), "\n")
-				conn, err := net.Dial("tcp", t.target)
+				conn, err := net.Dial("tcp4", t.target)
 				if err != nil {
 					t.logger.Println("error connecting to target: ", err)
 					t.outgoing <- libportal.Packet{libportal.GuestDisconnect, pkt.ConnId, nil}

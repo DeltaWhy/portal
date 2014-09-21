@@ -141,6 +141,16 @@ func (h *Host) Close() {
 		}
 		h.conn.Close()
 		close(h.guests)
+		go func() {
+			r := redis_client.Cmd("DEL", fmt.Sprintf("%s:game:%s", redis_prefix, h.outside.Addr()))
+			if r.Err != nil {
+				h.logger.Println(r.Err)
+			}
+			r = redis_client.Cmd("PUBLISH", redis_prefix+":game_closes", fmt.Sprint(h.outside.Addr()))
+			if r.Err != nil {
+				h.logger.Println(r.Err)
+			}
+		}()
 	}
 }
 
@@ -180,7 +190,7 @@ func hostSetup(h *Host) {
 	h.logger.Println("gameMeta:", string(resp.Payload))
 
 	var err error
-	h.outside, err = net.Listen("tcp", ":")
+	h.outside, err = net.Listen("tcp4", ":")
 	if err != nil {
 		h.logger.Println(err)
 		h.outgoing <- libportal.Err("error opening outside port")
@@ -190,6 +200,16 @@ func hostSetup(h *Host) {
 	h.outgoing <- libportal.Okay(fmt.Sprint("opened outside ", h.outside.Addr()))
 	go h.Listener()
 	go h.Pinger()
+	go func() {
+		r := redis_client.Cmd("SET", fmt.Sprintf("%s:game:%s", redis_prefix, h.outside.Addr()), string(resp.Payload))
+		if r.Err != nil {
+			h.logger.Println(r.Err)
+		}
+		r = redis_client.Cmd("PUBLISH", redis_prefix+":game_opens", fmt.Sprintf("{\"addr\":\"%s\", \"motd\":\"%s\"}", h.outside.Addr(), string(resp.Payload)))
+		if r.Err != nil {
+			h.logger.Println(r.Err)
+		}
+	}()
 	h.state = Ready
 
 	gs := make(map[uint32]*Guest)
